@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+*.db
+audit_log.jsonl
+backend/models/*.joblib
+node_modules/
+dist/

@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+pymongo
+argon2-cffi
+pyjwt
+pyotp
+qrcode[pil]
+scikit-learn
+numpy
+joblib
+httpx
+pydantic
+tzdata
