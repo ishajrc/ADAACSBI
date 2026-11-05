@@ -1,6 +1,7 @@
 """Smoke test: python test_flow.py  (uses a throwaway SQLite DB)"""
 import os
 os.environ["DATABASE_URL"] = "sqlite:///./test_tmp.db"
+if os.path.exists("test_tmp.db"): os.remove("test_tmp.db")
 from fastapi.testclient import TestClient
 from app.main import app
 from app import ml
@@ -42,7 +43,7 @@ with TestClient(app) as c:
 
     # Admin MFA flow
     import pyotp
-    r = login("manager"); assert r.json()["status"] == "MFA_SETUP_REQUIRED"
+    r = login("manager"); print(r.status_code, r.json()); assert r.json()["status"] == "MFA_SETUP_REQUIRED"
     mt = r.json()["mfa_token"]
     s = c.post("/api/auth/mfa/setup", headers=auth(mt)).json(); assert s["qr"].startswith("data:image/png")
     r = c.post("/api/auth/mfa/verify", json={"code": "000000"}, headers=auth(mt)); assert r.status_code == 401
