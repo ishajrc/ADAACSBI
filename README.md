@@ -140,7 +140,7 @@ All use the password `Passw0rd!`.
 
 | User | Role | Department | Notes |
 |---|---|---|---|
-| `devuser` | user | Engineering | clearance 3, any hour or day (easiest for demos) |
+| `devuser` | user | Engineering | clearance 3, any hour or day |
 | `alice` | user | Engineering | clearance 2, Mon-Fri 9-17 |
 | `bob` | user | Finance | clearance 3, Mon-Fri 9-17 |
 | `manager`, `admin2` | admin | Management / Engineering | MFA always required, can freeze users and approve requests |
