@@ -41,7 +41,7 @@ Settings in `backend/.env` are loaded automatically (python-dotenv).
 | manager, admin2 | admin | Management / Engineering | MFA always required, can freeze users and approve dual-auth |
 | superadmin | superuser | Management | same as admin |
 
-## 6. Things to demo (maps to the report's figures)
+## 6. Things to demo
 - Fig 6.1: log in as `manager`, scan the QR with Google Authenticator, enter the code.
 - Fig 6.4: threat simulator, "Blacklisted IP", log in, see "Access Blocked: CRITICAL".
 - Impossible travel: log in normally once, then log in with the "Impossible travel (US)" scenario.
@@ -50,7 +50,7 @@ Settings in `backend/.env` are loaded automatically (python-dotenv).
 - Fig 6.2: log in as `manager`, Admin Oversight tab: stats, freeze/unfreeze, dual-auth queue (request Source Code Vault as manager, approve it as admin2).
 - Wrong password 5 times: 15-minute lockout.
 
-## 7. Architecture (report chapter 3 and 5)
+## 7. Architecture
 ```
 backend/app/
   config.py    thresholds, blacklist, resources        security.py  Argon2, JWT, TOTP, QR
