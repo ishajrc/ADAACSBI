@@ -1,5 +1,38 @@
+import ipaddress
+import time
+from collections import deque
+
 from . import config
+from .models import BlacklistEntry
+from .netutil import in_list
 from .utils import utcnow
+
+_ip_failures: dict = {}  # ip -> deque of timestamps (in-memory; use Redis if you run several workers)
+
+
+def record_ip_failure(ip: str):
+    _ip_failures.setdefault(ip, deque()).append(time.time())
+
+
+def too_many_failures(ip: str) -> bool:
+    """Credential-stuffing signal: many failed logins from one IP across any usernames."""
+    try:
+        if ipaddress.ip_address(ip).is_loopback:
+            return False  # do not lock developers out on localhost
+    except ValueError:
+        pass
+    q = _ip_failures.get(ip)
+    if not q:
+        return False
+    cutoff = time.time() - config.IP_FAIL_WINDOW_SECONDS
+    while q and q[0] < cutoff:
+        q.popleft()
+    return len(q) >= config.MAX_FAILS_PER_IP
+
+
+def is_blacklisted(ip: str, db) -> bool:
+    entries = set(config.BLACKLISTED_IPS) | {e.cidr for e in db.query(BlacklistEntry).all()}
+    return in_list(ip, entries)
 
 
 def _allowed_days(user):
@@ -34,9 +67,9 @@ def is_impossible_travel(user, current_country: str) -> bool:
     return current_country != user.last_login_country and hours < config.IMPOSSIBLE_TRAVEL_HOURS
 
 
-def advanced_risk(ctx: dict, user) -> dict:
+def advanced_risk(ctx: dict, user, db) -> dict:
     """Stage 2: hard threat signals that block immediately."""
-    if ctx["ip"] in config.BLACKLISTED_IPS:
+    if is_blacklisted(ctx["ip"], db):
         return {"action": "BLOCKED", "risk_level": "CRITICAL",
                 "reason": f"IP address {ctx['ip']} is on the organisation's security blacklist."}
     if ctx["country"] in config.RESTRICTED_COUNTRIES:

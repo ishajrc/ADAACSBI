@@ -48,3 +48,23 @@ class AccessRequest(Base):
     status = Column(String, default="pending")       # pending/approved/rejected/used
     decided_by = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=utcnow)
+
+
+class Device(Base):
+    """Enrolled managed device. The browser holds a signed token that points at this row."""
+    __tablename__ = "devices"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    device_type = Column(String)                     # Corporate Laptop / Corporate Desktop
+    status = Column(String, default="pending")       # pending / active / revoked
+    code_hash = Column(String, nullable=True)        # hash of the one-time enrollment code
+    code_expires = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+
+
+class BlacklistEntry(Base):
+    __tablename__ = "ip_blacklist"
+    id = Column(Integer, primary_key=True)
+    cidr = Column(String, unique=True)               # single IP or CIDR range
+    reason = Column(String, default="")
+    created_at = Column(DateTime, default=utcnow)

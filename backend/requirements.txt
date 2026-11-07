@@ -13,3 +13,5 @@ joblib
 httpx
 pydantic
 tzdata
+geoip2
+python-dotenv

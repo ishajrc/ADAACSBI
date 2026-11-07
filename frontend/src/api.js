@@ -12,6 +12,10 @@ export async function api(path, { method = "GET", body, token, sim } = {}) {
   if (sim) Object.assign(headers, { "X-Device-Type": sim.device }, SCENARIOS[sim.scenario].headers);
   if (token) headers.Authorization = `Bearer ${token}`;
   try {
+    const dt = localStorage.getItem("device_token"); // issued when this browser is enrolled as a managed device
+    if (dt) headers["X-Device-Token"] = dt;
+  } catch { /* storage unavailable */ }
+  try {
     const res = await fetch(`/api${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
     const data = await res.json().catch(() => ({}));
     return { ok: res.ok, status: res.status, data };

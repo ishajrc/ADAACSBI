@@ -1,5 +1,11 @@
 import os
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # reads backend/.env if present
+except ImportError:
+    pass
+
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./adaptive.db")
 MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
 MONGO_DB = "adaptive_access"
@@ -38,3 +44,19 @@ RESOURCES = {
     103: {"name": "Source Code Vault", "department": "Engineering", "sensitivity": 3},
     104: {"name": "Company Handbook", "department": "General", "sensitivity": 1},
 }
+
+# ---- Real-network settings ----
+# Reverse proxies / load balancers whose X-Forwarded-For header we trust (IPs or CIDRs, comma separated).
+# Leave empty if the app is exposed directly. Example: TRUSTED_PROXIES=127.0.0.1,10.0.0.0/8
+TRUSTED_PROXIES = {p.strip() for p in os.getenv("TRUSTED_PROXIES", "").split(",") if p.strip()}
+
+# Local GeoIP database (free MaxMind GeoLite2-Country .mmdb). Fastest and works offline.
+GEOIP_DB_PATH = os.getenv("GEOIP_DB_PATH", os.path.join(os.path.dirname(__file__), "..", "geoip", "GeoLite2-Country.mmdb"))
+# If no local database, fall back to an online HTTPS lookup (ipwho.is).
+GEO_ONLINE_FALLBACK = os.getenv("GEO_ONLINE_FALLBACK", "1") == "1"
+
+# Credential-stuffing signal: failed logins from one IP (any usernames) inside the window
+MAX_FAILS_PER_IP = 10
+IP_FAIL_WINDOW_SECONDS = 600
+
+DEFAULT_SECRET = "dev-secret-change-me-dev-secret-change-me"

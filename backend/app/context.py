@@ -1,17 +1,28 @@
-import hashlib
 import ipaddress
 
-import httpx
 from fastapi import Request
 
 from . import config
+from .devices import resolve_device
+from .geo import lookup_country
+from .netutil import in_list
 from .utils import now_ist
 
 
 def client_ip(request: Request) -> str:
+    """Real client IP. X-Forwarded-For is only believed when the direct peer is a trusted proxy,
+    and we take the right-most address that is not itself a trusted proxy (hard to spoof)."""
     if config.ENABLE_SIMULATION and request.headers.get("x-simulated-ip"):
         return request.headers["x-simulated-ip"]
-    return request.client.host if request.client else "0.0.0.0"
+    peer = request.client.host if request.client else "0.0.0.0"
+    if config.TRUSTED_PROXIES and in_list(peer, config.TRUSTED_PROXIES):
+        hops = [h.strip() for h in request.headers.get("x-forwarded-for", "").split(",") if h.strip()]
+        for hop in reversed(hops):
+            if not in_list(hop, config.TRUSTED_PROXIES):
+                return hop
+        if hops:
+            return hops[0]
+    return peer
 
 
 def is_trusted(ip: str) -> bool:
@@ -30,19 +41,12 @@ async def get_country(ip: str, request: Request) -> str:
             return config.DEFAULT_COUNTRY
     if is_trusted(ip):
         return config.DEFAULT_COUNTRY
-    try:
-        async with httpx.AsyncClient(timeout=2) as client:
-            r = await client.get(f"http://ip-api.com/json/{ip}", params={"fields": "countryCode"})
-            return r.json().get("countryCode", "")
-    except Exception:
-        return ""
+    return await lookup_country(ip)
 
 
-async def build_context(request: Request, user) -> dict:
+async def build_context(request: Request, user, db) -> dict:
     ip = client_ip(request)
-    device_type = request.headers.get("x-device-type", "Unknown")[:40]
-    ua = request.headers.get("user-agent", "")
-    fingerprint = hashlib.sha256(f"{ua}|{device_type}".encode()).hexdigest()[:16]
+    device_type, fingerprint, managed = resolve_device(db, user, request)
     first_login = user.last_login_at is None  # first login establishes the baseline
     known_devices = set(filter(None, (user.known_devices or "").split(",")))
     known_ips = set(filter(None, (user.known_ips or "").split(",")))
@@ -51,6 +55,7 @@ async def build_context(request: Request, user) -> dict:
         "ip": ip,
         "country": await get_country(ip, request),
         "device_type": device_type,
+        "managed_device": managed,
         "fingerprint": fingerprint,
         "hour": now.hour,
         "weekday": now.weekday(),

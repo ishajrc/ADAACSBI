@@ -21,7 +21,7 @@ function Countdown({ seconds, onDone }) {
 
 function Login({ sim, setSim, onAuth, onMfa, onBlocked, notice }) {
   const [mode, setMode] = useState("login");
-  const [f, setF] = useState({ username: "", password: "", department: "General" });
+  const [f, setF] = useState({ username: "", password: "", department: "General", code: "" });
   const [err, setErr] = useState("");
   const [lock, setLock] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -33,6 +33,15 @@ function Login({ sim, setSim, onAuth, onMfa, onBlocked, notice }) {
       const r = await api("/auth/register", { method: "POST", body: f, sim });
       setErr(r.ok ? "Account created. You can log in now." : JSON.stringify(r.data.detail));
       if (r.ok) setMode("login");
+      return setBusy(false);
+    }
+    if (mode === "enroll") {
+      const r = await api("/devices/enroll", { method: "POST", body: { username: f.username, password: f.password, code: f.code }, sim });
+      if (r.ok) {
+        localStorage.setItem("device_token", r.data.device_token);
+        setErr(`This browser is now enrolled as a managed ${r.data.device_type}. You can log in.`);
+        setMode("login");
+      } else setErr(detailOf(r));
       return setBusy(false);
     }
     const r = await api("/auth/login", { method: "POST", body: { username: f.username, password: f.password }, sim });
@@ -56,22 +65,25 @@ function Login({ sim, setSim, onAuth, onMfa, onBlocked, notice }) {
         <label>Username</label><input value={f.username} onChange={set("username")} />
         <label>Password</label>
         <input type="password" value={f.password} onChange={set("password")} onKeyDown={(e) => e.key === "Enter" && submit()} />
+        {mode === "enroll" && (<><label>Enrollment code (from your administrator)</label>
+          <input value={f.code} onChange={set("code")} placeholder="9F3A1C07" /></>)}
         {mode === "register" && (<><label>Department</label>
           <select value={f.department} onChange={set("department")}>
             {["General", "Engineering", "Finance", "Management"].map((d) => <option key={d}>{d}</option>)}
           </select></>)}
         <button className="full" disabled={busy || !!lock} onClick={submit}>
-          {mode === "login" ? "Authenticate Access" : "Create account"}
+          {mode === "login" ? "Authenticate Access" : mode === "register" ? "Create account" : "Enroll this device"}
         </button>
         <div className="link" onClick={() => setMode(mode === "login" ? "register" : "login")}>
           {mode === "login" ? "No identity? Provision access" : "Back to login"}
         </div>
+        {mode === "login" && <div className="link" onClick={() => setMode("enroll")}>Enroll this browser as a managed device</div>}
         <div className="sim">
-          <label>Threat simulator (demo)</label>
+          <label>Threat simulator (demo only - disabled when ENABLE_SIMULATION=0)</label>
           <select value={sim.scenario} onChange={(e) => setSim({ ...sim, scenario: e.target.value })}>
             {Object.entries(SCENARIOS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
-          <label>Device</label>
+          <label>Simulated device</label>
           <select value={sim.device} onChange={(e) => setSim({ ...sim, device: e.target.value })}>
             {DEVICES.map((d) => <option key={d}>{d}</option>)}
           </select>
@@ -135,7 +147,9 @@ function Dashboard({ token, sim, onLogout }) {
   const [resources, setResources] = useState([]);
   const [history, setHistory] = useState([]);
   const [msg, setMsg] = useState(null);
-  const [admin, setAdmin] = useState({ stats: null, users: [], reqs: [], audit: [] });
+  const [admin, setAdmin] = useState({ stats: null, users: [], reqs: [], audit: [], devices: [], blacklist: [] });
+  const [enroll, setEnroll] = useState({ user_id: "", device_type: "Corporate Laptop", code: null });
+  const [bl, setBl] = useState({ cidr: "", reason: "", err: "" });
 
   const call = (p, o = {}) => api(p, { token, sim, ...o });
   const isAdmin = me && ["admin", "superuser"].includes(me.role);
@@ -144,8 +158,9 @@ function Dashboard({ token, sim, onLogout }) {
     const h = await call("/history"); if (h.ok) setHistory(h.data);
   }
   async function refreshAdmin() {
-    const [s, u, r, a] = await Promise.all([call("/admin/stats"), call("/admin/users"), call("/admin/requests"), call("/admin/audit")]);
-    setAdmin({ stats: s.data, users: u.data, reqs: r.data, audit: a.data });
+    const [s, u, r, a, d, b] = await Promise.all([call("/admin/stats"), call("/admin/users"), call("/admin/requests"),
+      call("/admin/audit"), call("/admin/devices"), call("/admin/blacklist")]);
+    setAdmin({ stats: s.data, users: u.data, reqs: r.data, audit: a.data, devices: d.data, blacklist: b.data });
   }
   useEffect(() => {
     (async () => {
@@ -170,6 +185,17 @@ function Dashboard({ token, sim, onLogout }) {
     refresh(); if (isAdmin && tab === "admin") refreshAdmin();
   }
   async function act(path) { await call(path, { method: "POST" }); refreshAdmin(); }
+  async function makeCode() {
+    const r = await call("/admin/devices/enrollment", { method: "POST", body: { user_id: Number(enroll.user_id), device_type: enroll.device_type } });
+    setEnroll({ ...enroll, code: r.ok ? `${r.data.code} (for ${r.data.username}, valid ${r.data.expires_minutes} min)` : detailOf(r) });
+    refreshAdmin();
+  }
+  async function addBlacklist() {
+    const r = await call("/admin/blacklist", { method: "POST", body: { cidr: bl.cidr, reason: bl.reason } });
+    setBl(r.ok ? { cidr: "", reason: "", err: "" } : { ...bl, err: detailOf(r) });
+    if (r.ok) refreshAdmin();
+  }
+  async function removeBlacklist(id) { await call(`/admin/blacklist/${id}`, { method: "DELETE" }); refreshAdmin(); }
 
   if (!me) return <div className="center">Loading...</div>;
   const dist = admin.stats?.distribution || { GRANTED: 0, DENIED: 0 };
@@ -179,7 +205,7 @@ function Dashboard({ token, sim, onLogout }) {
     <div className="app">
       <div className="top">
         <div><h2>Welcome {me.username}</h2>
-          <p className="sub">{me.role} - {me.department} - clearance {me.clearance_level} - login risk {me.risk_score ?? 0}</p></div>
+          <p className="sub">{me.role} - {me.department} - clearance {me.clearance_level} - login risk {me.risk_score ?? 0} - device: {me.device_type}{me.managed_device ? " (enrolled)" : ""}</p></div>
         <button className="ghost" onClick={() => onLogout()}>Sign out</button>
       </div>
       <div className="tabs">
@@ -228,6 +254,35 @@ function Dashboard({ token, sim, onLogout }) {
                 <td>{u.id !== me.id && <button className={`small ${u.is_frozen ? "ok" : "bad"}`}
                   onClick={() => act(`/admin/users/${u.id}/${u.is_frozen ? "unfreeze" : "freeze"}`)}>{u.is_frozen ? "Unfreeze" : "Freeze"}</button>}</td></tr>))}
           </tbody></table></div>
+        <div className="grid" style={{ marginTop: 14 }}>
+          <div className="card"><h3>Managed devices</h3>
+            <p className="sub">Only an enrolled browser counts as a managed device. Generate a code, then the user enrolls from the login screen.</p>
+            <select value={enroll.user_id} onChange={(e) => setEnroll({ ...enroll, user_id: e.target.value, code: null })}>
+              <option value="">Select user...</option>
+              {admin.users.map((u) => <option key={u.id} value={u.id}>{u.username}</option>)}
+            </select>
+            <select style={{ marginTop: 8 }} value={enroll.device_type} onChange={(e) => setEnroll({ ...enroll, device_type: e.target.value })}>
+              <option>Corporate Laptop</option><option>Corporate Desktop</option>
+            </select>
+            <button className="full" disabled={!enroll.user_id} onClick={makeCode}>Generate enrollment code</button>
+            {enroll.code && <div className="alert ok"><code>{enroll.code}</code></div>}
+            <table style={{ marginTop: 10 }}><tbody>
+              {admin.devices.map((d) => (
+                <tr key={d.id}><td>{d.username}</td><td>{d.device_type}</td><td><span className={`pill ${d.status === "active" ? "ACTIVE" : d.status === "pending" ? "pending" : "FROZEN"}`}>{d.status}</span></td>
+                  <td>{d.status !== "revoked" && <button className="small bad" onClick={() => act(`/admin/devices/${d.id}/revoke`)}>Revoke</button>}</td></tr>))}
+            </tbody></table></div>
+          <div className="card"><h3>IP blacklist</h3>
+            <p className="sub">Single IPs or CIDR ranges. Matching logins are blocked as CRITICAL.</p>
+            {bl.err && <div className="alert bad">{bl.err}</div>}
+            <input placeholder="198.51.100.0/24" value={bl.cidr} onChange={(e) => setBl({ ...bl, cidr: e.target.value })} />
+            <input style={{ marginTop: 8 }} placeholder="Reason (optional)" value={bl.reason} onChange={(e) => setBl({ ...bl, reason: e.target.value })} />
+            <button className="full" disabled={!bl.cidr} onClick={addBlacklist}>Add to blacklist</button>
+            <table style={{ marginTop: 10 }}><tbody>
+              {admin.blacklist.map((b, i) => (
+                <tr key={i}><td>{b.cidr}</td><td>{b.reason}</td>
+                  <td>{b.id && <button className="small bad" onClick={() => removeBlacklist(b.id)}>Remove</button>}</td></tr>))}
+            </tbody></table></div>
+        </div>
         <div className="card scroll" style={{ marginTop: 14 }}><h3>Dual-authorization queue</h3>
           <table><thead><tr><th>Requester</th><th>Resource</th><th>Status</th><th></th></tr></thead><tbody>
             {admin.reqs.map((r) => (
