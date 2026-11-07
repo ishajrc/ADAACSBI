@@ -8,3 +8,4 @@ backend/models/*.joblib
 node_modules/
 dist/
 backend/geoip/*.mmdb
+desktop.ini
